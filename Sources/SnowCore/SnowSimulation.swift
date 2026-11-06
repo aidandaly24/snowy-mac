@@ -13,10 +13,12 @@ public final class SnowSimulation {
     public var snowfall: Snowfall = .steady
     public var reducedMotion = false
     public var particleScale: Float = 1
+    public var ambientSnowfallEnabled = true
     public var wind = WindSettings() {
         didSet { if wind != oldValue { cornerWindDirty = true } }
     }
     public var tool: SnowTool = .glove
+    public var collisionBodies: [SolidBody] { bodies }
 
     // Shared only by SnowCore implementation extensions; none of this state is public.
     var random: RandomSource
@@ -30,6 +32,7 @@ public final class SnowSimulation {
     var geometryAge: Float = 0
     private var settleAge: Float = 0
     private var elapsed: Float = 0
+    private var erosionAge: Float = 0
     var lastSurfaces: [Surface] = []
     var pendingAppearances: [SolidBody] = []
     var batchingScene = false
@@ -127,10 +130,11 @@ public final class SnowSimulation {
         elapsed += dt
         geometryAge += dt
         settleAge += dt
+        erosionAge += dt
         if let cursor, cursor.x.isFinite, cursor.y.isFinite {
             if tool == .shovel {
                 sweep(from: rawDT < 0.2 ? (previousCursor ?? cursor) : cursor, to: cursor, dt: dt)
-            } else if rawDT < 0.2, let previousCursor {
+            } else if tool == .glove, rawDT < 0.2, let previousCursor {
                 let delta = cursor - previousCursor
                 if delta.x * delta.x + delta.y * delta.y > 0.25 {
                     sweep(from: previousCursor, to: cursor, dt: dt)
@@ -139,8 +143,15 @@ public final class SnowSimulation {
             previousCursor = cursor
         } else { previousCursor = nil }
 
-        for drift in drifts { drift.accumulate(dt: dt, intensity: snowfall.density) }
-        if settleAge >= 0.1 {
+        if ambientSnowfallEnabled {
+            for drift in drifts { drift.accumulate(dt: dt, intensity: snowfall.density) }
+        }
+        let storm: Float = snowfall == .blizzard ? 1.7 + sin(elapsed * 0.61) * 0.55 : 1
+        if erosionAge >= 0.15 {
+            if ambientSnowfallEnabled && !reducedMotion { erodeSnowInWind(dt: min(0.25, erosionAge), gust: storm) }
+            erosionAge = 0
+        }
+        if settleAge >= 0.1 && (ambientSnowfallEnabled || interactionDirty || !looseSnow.active.isEmpty) {
             for drift in drifts { drift.settle() }
             settleAge = 0
             meshDirty = true
@@ -155,20 +166,19 @@ public final class SnowSimulation {
             var particle = flakes[i]
             particle.phase += dt * 0.8
             if particle.phase > .pi * 2 { particle.phase -= .pi * 2 }
-            let gust = SIMD2(wind + sin(particle.phase) * 9 + self.wind.velocity.x,
+            let gust = SIMD2(wind + sin(particle.phase) * 9 + self.wind.velocity.x * storm,
                              self.wind.velocity.y * 0.35)
             particle.velocity += gust
             let deposited = advanceParticle(&particle, dt: dt, recycleOnContact: true)
             particle.velocity -= gust
-            if deposited || particle.position.y > size.y + 8 || particle.position.y < -40 {
+            if deposited || particle.position.y > size.y + 8 || particle.position.y < -40
+                || particle.position.x < -8 || particle.position.x > size.x + 8 {
                 particle = newFlake(scattered: false)
             }
-            if particle.position.x < -8 { particle.position.x = size.x + 4 }
-            if particle.position.x > size.x + 8 { particle.position.x = -4 }
             flakes[i] = particle
         }
         let looseRevision = looseSnow.revision
-        looseSnow.step(dt: dt, wind: self.wind.velocity) { [unowned self] from, to, mass in
+        looseSnow.step(dt: dt, wind: self.wind.velocity * (snowfall == .blizzard ? 1.5 : 1)) { [unowned self] from, to, mass in
             self.landGranularSnow(from: from, to: to, mass: mass)
         }
         if tool == .shovel, let cursor {

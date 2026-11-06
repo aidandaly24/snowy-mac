@@ -42,7 +42,102 @@ open build/Snowy.app
 
 The build script compiles the app and shaders, adds a local signature, and leaves the app in `build/`. It does not launch or install anything. If Xcode reports a missing Metal toolchain, install it from Xcode’s component settings first.
 
+## Working on this fork
+
+This checkout uses `origin` for `aidandaly24/snowy-mac` and `upstream` for the
+original `soloiaros/snowy-mac` repository. Local edits start on the
+`local-customizations` branch. Automatic checks of the original app's release
+feed are disabled in `App/Info.plist` for this fork.
+
+Open `Package.swift` in Xcode to edit the app. After saving changes, run:
+
+```sh
+./scripts/dev.sh
+```
+
+This builds a locally signed `build/Snowy.app`, closes the running copy from this
+checkout, and opens the new build. A failed build leaves the running app alone.
+`Sources/Snowy/` contains the interface and rendering; `Sources/SnowCore/` contains
+the snow simulation. Run `swift test` after changing the simulation.
+
+This fork keeps a separate snow simulation and decoration layer for each visited
+macOS desktop. Swiping away pauses that desktop; returning resumes its existing
+snow and prop positions. Up to eight desktops per physical display are retained
+while the app runs. Quitting or changing the physical screen layout clears that
+transient snow state.
+
+For a native desktop round-trip check, launch with an absolute local log path:
+
+```sh
+SNOWY_SPACE_DIAGNOSTICS_PATH=/tmp/snowy-space-state.log ./scripts/dev.sh
+```
+
+Brush a pile, switch desktops, and return. A panel's `resume` state fingerprint
+should match its preceding `suspend` fingerprint. This records only Snowy's own
+panel identifiers and simulation fingerprints, without desktop content.
+
+## Personal winter features
+
+Choose **Open Snowy… → Vibes** for the main controls. The settings window moves
+to your current desktop when opened. Pick a preset, adjust snowfall and wind,
+choose a friend mix and group size, select a cursor tool, or enable battery mode.
+**Edit Village…** opens the asset and string-light editor. **Save Changes to
+Preset** stores the current scene, weather and friends locally for later use;
+**Reset Preset** restores its original design. The menu bar controls stay in sync.
+
+Eight built-in presets cover the original village asset collection: Cozy Village,
+Blizzard, City Snowfall, Christmas Morning, Winter Market, Alpine Retreat,
+Lantern Garden, and Gingerbread Lane. Both Cozy Village and Blizzard have houses.
+Cozy Village continues across the bottom, with cottages around a café, chalkboard,
+streetlamp and bench above the Dock. Factory scenery fits actual sprite widths
+to each display. Explicit scene edits and saved presets retain their placements.
+The donation menu item has been removed in this personal fork.
+
+A desktop starts with three mixed friends. Choose one to five penguins, foxes or
+snowmen, or None. They wander in front of the village, greet nearby friends,
+visit landmarks, notice your pointer, and leave fading tracks. Sprite-sized walking
+clearances keep mixed groups apart. Blocked residents wait or recover to free
+ground; walking animation stops while idle, and centered cursor movement has a
+facing deadband. Inactive desktops
+pause; each retains its own scene and play state while Snowy runs.
+
+- **Snowball:** on empty desktop, hold Option, flick the pointer, then release
+  Option. No click is needed. Snowballs collide with windows and the floor.
+- **Build Snowman:** hold Option over empty desktop for about 1.2 seconds, then
+  release. It appears at the desktop edge or on the Dock below.
+- Shake a dragged window rapidly side to side to shed its attached snow.
+- **Battery-Friendly Mode:** keeps settled snow and decorations, stops ambient
+  flakes, gust streaks and wandering, and skips unchanged snow redraws. Interactive
+  polling is capped at 10 Hz. This toggle is remembered across app launches.
+
+Blizzard flakes enter through upwind boundaries over the screen's full height,
+as well as through the top. Eight subtle gust streaks make the wind visible.
+Strong storm wind slowly transfers exposed settled snow into the bounded granular
+field; material that cannot fit stays on its support. Hanging light wires now
+have curved, thin snow supports that follow the moving strings and release snow
+when removed. The Vibes **Snow on lights** slider sets their capture chance,
+defaulting to 20%; the remaining flakes pass through to lower surfaces. Both
+visible flake contacts and ambient accumulation respect the percentage. The
+setting is stored with each saved preset, and older presets default to 20%.
+
+The scene cache keeps up to eight desktops per physical screen. Each has at most
+five friends, 72 fading tracks, eight snowballs, and 16 placed props. Curved wire
+supports share the existing surface and mesh budgets. New effects use the existing
+frame clock. Saved preset definitions persist across restarts; macOS desktop
+assignments and transient snow/play state currently remain in memory only.
+
+`swift test` covers weather budgets, walking and social pauses, projectile
+contacts, shake detection and conservation, idle battery meshes, upwind inflow,
+wind erosion and exhausted storage, and snow landing on/removing curved wires.
+Debug builds can render the settings window offscreen with
+`SNOWY_SETTINGS_PREVIEW_PATH=/tmp/snowy-settings.png`; this also smoke-checks all
+preset asset references, preset serialization, and native friend groups of sizes
+one through five. `SNOWY_VILLAGE_PREVIEW_PATH=/tmp/snowy-village.png` checks Cozy
+prop spacing and renders native scenery and friends at two display widths.
+The native Guide explains the controls too.
+
 ## A desktop in your browser
+
 
 The [website](https://snowy.aauburn.com) has its own movable windows, a bottom Dock, and snow you can push around. There may also be someone thawing out for December. Downloads are pay what you want, including $0; optional support uses [Polar hosted checkout](website/docs/payments.md).
 

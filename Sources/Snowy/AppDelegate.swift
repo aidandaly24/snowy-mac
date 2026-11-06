@@ -5,8 +5,12 @@ import SnowCore
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSMenuDelegate {
     private var coordinator: DesktopCoordinator?
     private var statusItem: NSStatusItem?
+    private let batteryItem = NSMenuItem(title: "Battery-Friendly Mode", action: #selector(toggleBattery), keyEquivalent: "")
     private let pauseItem = NSMenuItem(title: "Pause Snow", action: #selector(togglePause), keyEquivalent: "p")
     private let stateItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private var friendItems: [NSMenuItem] = []
+    private var vibeItems: [NSMenuItem] = []
+    private let vibeMenuItem = NSMenuItem(title: "This Desktop", action: nil, keyEquivalent: "")
     private var weatherItems: [NSMenuItem] = []
     private var windPopover: NSPopover?
     private var toolItems: [NSMenuItem] = []
@@ -25,9 +29,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSM
         updater.onChange = { [weak self] in self?.updateAvailableRelease() }
         updater.start()
         do {
-            let coordinator = try DesktopCoordinator()
+            let coordinator = try DesktopCoordinator(configuration: decorationSettings.configuration)
             self.coordinator = coordinator
-            coordinator.onStateChange = { [weak self] in self?.updateMenu() }
+            coordinator.onStateChange = { [weak self] in
+                self?.synchronizeSettings()
+                self?.updateMenu()
+            }
             decorationSettings.onChange = { [weak coordinator] configuration in
                 coordinator?.setDecorations(configuration)
             }
@@ -38,7 +45,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSM
             coordinator.onDesktopGeometryChange = { [weak self] desktops in
                 self?.decorationSettings.desktops = desktops
             }
-            decorationSettings.apply()
+            decorationSettings.onVibeChange = { [weak coordinator] in coordinator?.setVibe($0) }
+            decorationSettings.onWeatherChange = { [weak coordinator] in coordinator?.setWeather($0, wind: $1) }
+            decorationSettings.onFriendsChange = { [weak coordinator] in coordinator?.setFriends($0, count: $1) }
+            decorationSettings.onLightSnowCatchChange = { [weak coordinator] in coordinator?.setLightSnowCatch($0) }
+            decorationSettings.onBatteryChange = { [weak coordinator] in coordinator?.batteryFriendly = $0 }
+            decorationSettings.onSaveVibe = { [weak coordinator] in coordinator?.saveCurrentVibe() ?? false }
+            decorationSettings.onResetVibe = { [weak coordinator] in coordinator?.resetCurrentVibe() }
+            decorationSettings.onToolChange = { [weak coordinator] in coordinator?.tool = $0 }
+            decorationSettings.onClearSnow = { [weak coordinator] in coordinator?.clear() }
+            decorationSettings.onResetPositions = { [weak coordinator] in coordinator?.resetDecorations() }
+            synchronizeSettings()
         } catch {
             stateItem.title = "Metal is unavailable on this Mac"
             pauseItem.isEnabled = false
@@ -46,7 +63,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSM
         updateMenu()
         if coordinator != nil {
             FirstLaunchPolicy.markConsidered(in: defaults)
-            if shouldShowWelcome { presentWelcome() }
+            if ProcessInfo.processInfo.arguments.contains("--settings") { presentSnowyWindow() }
+            else if shouldShowWelcome { presentWelcome() }
         }
     }
 
@@ -72,10 +90,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSM
         let menu = NSMenu()
         menu.autoenablesItems = false
         menu.delegate = self
-        let support = NSMenuItem(title: "Drop some coins", action: #selector(openSupportCheckout), keyEquivalent: "")
-        support.target = self
-        menu.addItem(support)
-        menu.addItem(.separator())
         let title = NSMenuItem(title: "Snowy", action: nil, keyEquivalent: "")
         title.isEnabled = false
         menu.addItem(title)
@@ -86,6 +100,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSM
         open.target = self
         menu.addItem(open)
         menu.addItem(.separator())
+        let vibes = NSMenu(title: "This Desktop")
+        vibes.autoenablesItems = false
+        for (index, vibe) in DesktopVibe.allCases.enumerated() {
+            let option = NSMenuItem(title: vibe.rawValue, action: #selector(selectVibe(_:)), keyEquivalent: "")
+            option.tag = index
+            option.target = self
+            vibes.addItem(option)
+            vibeItems.append(option)
+        }
+        let friendMenu = NSMenu(title: "Winter Friends")
+        friendMenu.autoenablesItems = false
+        for (index, kind) in WinterFriendKind.allCases.enumerated() {
+            let option = NSMenuItem(title: kind.rawValue, action: #selector(selectFriend(_:)), keyEquivalent: "")
+            option.tag = index
+            option.target = self
+            friendMenu.addItem(option)
+            friendItems.append(option)
+        }
+        let friendItem = NSMenuItem(title: "Winter Friends", action: nil, keyEquivalent: "")
+        friendItem.submenu = friendMenu
+        vibeMenuItem.submenu = vibes
+        menu.addItem(vibeMenuItem)
+        menu.addItem(friendItem)
+        batteryItem.target = self
+        menu.addItem(batteryItem)
+        menu.addItem(.separator())
         pauseItem.target = self
         menu.addItem(pauseItem)
         let clear = NSMenuItem(title: "Clear Settled Snow", action: #selector(clearSnow), keyEquivalent: "k")
@@ -94,8 +134,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSM
         let tool = NSMenuItem(title: "Cursor Tool", action: nil, keyEquivalent: "")
         let tools = NSMenu(title: "Cursor Tool")
         tools.autoenablesItems = false
-        for (index, name) in ["Glove", "Shovel"].enumerated() {
-            let option = NSMenuItem(title: name, action: #selector(selectTool(_:)), keyEquivalent: "")
+        for (index, tool) in SnowTool.allCases.enumerated() {
+            let option = NSMenuItem(title: tool.rawValue, action: #selector(selectTool(_:)), keyEquivalent: "")
             option.tag = index
             option.target = self
             tools.addItem(option)
@@ -165,28 +205,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSM
         welcomeWindow?.present()
     }
 
-    @objc private func openSupportCheckout() {
-        guard let url = URL(string: "https://snowy.aauburn.com/#drop-some-coins") else { return }
-        NSWorkspace.shared.open(url)
+    private func synchronizeSettings() {
+        guard let coordinator else { return }
+        decorationSettings.load(coordinator.currentConfiguration)
+        if decorationSettings.savedPresetAssets != coordinator.savedPresetAssets {
+            decorationSettings.savedPresetAssets = coordinator.savedPresetAssets
+        }
+        decorationSettings.loadControls(vibe: coordinator.vibe, snowfall: coordinator.snowfall,
+            wind: coordinator.wind, friendKind: coordinator.friendKind, friendCount: coordinator.friendCount,
+            battery: coordinator.batteryFriendly, saved: coordinator.hasSavedVibe, tool: coordinator.tool,
+            lightSnowCatch: coordinator.lightSnowCatch)
     }
 
     private func updateMenu() {
         guard let coordinator else { return }
+        vibeMenuItem.title = "This Desktop: \(coordinator.vibe.rawValue)"
+        for (index, item) in vibeItems.enumerated() {
+            item.state = DesktopVibe.allCases[index] == coordinator.vibe ? .on : .off
+        }
+        for (index, item) in friendItems.enumerated() {
+            item.state = WinterFriendKind.allCases[index] == coordinator.friendKind ? .on : .off
+        }
+        batteryItem.state = coordinator.batteryFriendly ? .on : .off
         pauseItem.title = coordinator.paused ? "Resume Snow" : "Pause Snow"
         if coordinator.failed { stateItem.title = "Rendering stopped — relaunch to retry" }
         else if coordinator.policy.suspended { stateItem.title = "Resting while your Mac cools down" }
         else if coordinator.paused { stateItem.title = "Snow is paused" }
+        else if coordinator.batteryFriendly { stateItem.title = "Battery mode · settled snow and decorations" }
         else if coordinator.policy.reducedMotion { stateItem.title = "Quiet drifts · Reduce Motion" }
         else if coordinator.policy.particleScale < 1 { stateItem.title = "Gentle snowfall · saving energy" }
-        else { stateItem.title = "Brush a snowy edge to sweep it away" }
+        else if coordinator.tool == .snowball { stateItem.title = "Hold Option, flick the pointer, release to throw" }
+        else if coordinator.tool == .snowman { stateItem.title = "Hold Option on empty desktop to build a snowman" }
+        else { stateItem.title = "Brush snow, or shake a window to shed its cap" }
         for (index, item) in weatherItems.enumerated() {
             item.state = Snowfall.allCases[index] == coordinator.snowfall ? .on : .off
         }
         for (index, item) in toolItems.enumerated() {
-            item.state = (index == 1 ? coordinator.tool == .shovel : coordinator.tool == .glove) ? .on : .off
+            item.state = SnowTool.allCases[index] == coordinator.tool ? .on : .off
         }
     }
 
+    @objc private func toggleBattery() { coordinator?.batteryFriendly.toggle() }
     @objc private func togglePause() { coordinator?.paused.toggle() }
     @objc private func clearSnow() { coordinator?.clear() }
     @objc private func showWind() {
@@ -215,8 +274,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSM
         windPopover = nil
     }
 
+    @objc private func selectFriend(_ sender: NSMenuItem) {
+        guard WinterFriendKind.allCases.indices.contains(sender.tag) else { return }
+        coordinator?.setFriend(WinterFriendKind.allCases[sender.tag])
+    }
+
+    @objc private func selectVibe(_ sender: NSMenuItem) {
+        guard DesktopVibe.allCases.indices.contains(sender.tag) else { return }
+        coordinator?.setVibe(DesktopVibe.allCases[sender.tag])
+    }
+
     @objc private func selectTool(_ sender: NSMenuItem) {
-        coordinator?.tool = sender.tag == 1 ? .shovel : .glove
+        guard SnowTool.allCases.indices.contains(sender.tag) else { return }
+        coordinator?.tool = SnowTool.allCases[sender.tag]
     }
     @objc private func setSnowfall(_ sender: NSMenuItem) {
         guard Snowfall.allCases.indices.contains(sender.tag) else { return }

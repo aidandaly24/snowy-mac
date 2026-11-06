@@ -70,6 +70,12 @@ extension SnowSimulation {
                 && surface.y >= 0 && surface.y <= size.y
                 && surface.visibleSpans.count <= 128
                 && surface.snowfallSpans.count <= 128
+                && surface.snowCatchFraction.isFinite && (0...1).contains(surface.snowCatchFraction)
+                && surface.supportOffsets.count <= 64
+                && (surface.supportOffsets.isEmpty || surface.supportOffsets.count >= 2)
+                && surface.supportOffsets.allSatisfy { $0.isFinite && $0 >= 0 && surface.y + $0 <= size.y }
+                && (surface.maximumSnowDepth == nil || (surface.maximumSnowDepth!.isFinite
+                    && surface.maximumSnowDepth! > 0 && surface.maximumSnowDepth! <= 28))
                 && surface.snowfallSpans.allSatisfy { $0.lower.isFinite && $0.upper.isFinite
                     && $0.lower >= 0 && $0.upper <= surface.width && $0.upper > $0.lower }
                 && surface.visibleSpans.allSatisfy {

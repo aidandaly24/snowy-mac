@@ -68,8 +68,38 @@ private enum PixelCatalog {
     static let alpineVillage: [DecorationPiece] = [pine(), chalet(), snowman()]
     static let winterMarket: [DecorationPiece] = [menuBoard(), marketStall(), cocoaCrate()]
     static let extras: [DecorationPiece] = [
-        candyCane(), sled(), bench(), mailbox(), lantern(), gingerbread(), pineBundle()
+        candyCane(), sled(), bench(), mailbox(), lantern(), gingerbread(), pineBundle(), penguin(), fox()
     ]
+
+    private static func penguin() -> DecorationPiece {
+        var p = PixelSprite(18, 25)
+        p.polygon([(5, 1), (13, 1), (16, 5), (15, 11), (18, 19), (14, 23), (3, 23), (0, 18), (3, 10), (2, 5)], 0x263B50)
+        p.fill(4, 5, 10, 6, 0xEFF7F2)
+        p.polygon([(6, 11), (12, 11), (15, 19), (12, 22), (5, 22), (3, 19)], 0xE2EFF0)
+        p.fill(5, 6, 2, 2, 0x172838)
+        p.fill(11, 6, 2, 2, 0x172838)
+        p.fill(8, 8, 4, 2, 0xF0B15E)
+        p.fill(3, 11, 12, 2, 0xC95662)
+        p.fill(11, 12, 3, 6, 0xDE6E75)
+        p.fill(2, 23, 6, 2, 0xF0B15E)
+        p.fill(11, 23, 6, 2, 0xF0B15E)
+        return p.piece("Winter penguin", movesByDefault: false)
+    }
+
+    private static func fox() -> DecorationPiece {
+        var p = PixelSprite(28, 18)
+        p.polygon([(1, 5), (1, 0), (7, 4), (10, 1), (12, 8), (10, 13), (2, 13), (0, 9)], 0xD98950)
+        p.polygon([(9, 9), (20, 7), (24, 10), (20, 15), (8, 15)], 0xBD6543)
+        p.polygon([(18, 10), (23, 4), (27, 4), (28, 10), (24, 15), (18, 15)], 0xDF9A5B)
+        p.polygon([(24, 4), (27, 4), (28, 10), (25, 12)], 0xF4E6CF)
+        p.fill(2, 8, 7, 4, 0xF4E6CF)
+        p.fill(2, 6, 2, 2, 0x233649)
+        p.fill(0, 9, 2, 2, 0x233649)
+        p.fill(8, 14, 3, 4, 0x6F4941)
+        p.fill(17, 14, 3, 4, 0x6F4941)
+        p.fill(8, 11, 6, 2, 0x788D9A)
+        return p.piece("Winter fox", movesByDefault: false)
+    }
 
     private static func present(_ name: String, width: Int, height: Int,
                                 box: UInt32, edge: UInt32, ribbon: UInt32) -> DecorationPiece {

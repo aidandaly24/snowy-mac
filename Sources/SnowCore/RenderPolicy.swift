@@ -4,12 +4,14 @@ public enum Snowfall: String, CaseIterable, Sendable {
     case light = "Light"
     case steady = "Steady"
     case flurry = "Flurry"
+    case blizzard = "Blizzard"
 
     public var density: Float {
         switch self {
         case .light: 0.55
         case .steady: 1
         case .flurry: 1.65
+        case .blizzard: 2.7
         }
     }
 }
@@ -20,10 +22,12 @@ public struct RenderPolicy: Equatable, Sendable {
     public var renderScale: Float
     public var reducedMotion: Bool
     public var suspended: Bool
+    public var batteryFriendly: Bool
 
     /// A pure policy, so system-state handling can be verified without exercising a GPU.
-    public init(lowPower: Bool, thermalLevel: Int, reducedMotion: Bool) {
+    public init(lowPower: Bool, thermalLevel: Int, reducedMotion: Bool, batteryFriendly: Bool = false) {
         self.reducedMotion = reducedMotion
+        self.batteryFriendly = batteryFriendly
         suspended = thermalLevel >= 3
         framesPerSecond = thermalLevel >= 2 ? 15 : (lowPower ? 20 : 30)
         particleScale = thermalLevel >= 2 ? 0.35 : (lowPower ? 0.55 : 1)
@@ -32,6 +36,11 @@ public struct RenderPolicy: Equatable, Sendable {
             framesPerSecond = 15
             particleScale = 0
             renderScale = 1
+        }
+        if batteryFriendly {
+            framesPerSecond = min(framesPerSecond, 10)
+            particleScale = 0
+            renderScale = min(renderScale, 0.75)
         }
     }
 }

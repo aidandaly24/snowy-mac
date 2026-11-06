@@ -27,12 +27,19 @@ public struct Surface: Equatable, Sendable {
     public var releasesSnowWhenRemoved: Bool
     /// Spotlight renders above the desktop. Ordinary removable props stay on the desktop plane.
     public var isElevated: Bool
+    /// Uniformly spaced vertical offsets for a curved support such as a light wire.
+    public var supportOffsets: [Float]
+    public var maximumSnowDepth: Float?
+    /// Share of ambient flakes caught by this support. Transported snow remains physical.
+    public var snowCatchFraction: Float
+    public var maximumBaseY: Float { y + max(cornerRadius, supportOffsets.max() ?? 0) }
     public var minimumWidth: Float { releasesSnowWhenRemoved && !isElevated ? 5 : 16 }
 
     public init(id: UInt64, x: Float, y: Float, width: Float,
                 visibleSpans: [Span]? = nil, isDock: Bool = false,
                 cornerRadius: Float = 0, snowfallSpans: [Span]? = nil,
-                releasesSnowWhenRemoved: Bool = false, isElevated: Bool? = nil) {
+                releasesSnowWhenRemoved: Bool = false, isElevated: Bool? = nil,
+                supportOffsets: [Float] = [], maximumSnowDepth: Float? = nil, snowCatchFraction: Float = 1) {
         self.id = id
         self.x = x
         self.y = y
@@ -43,6 +50,9 @@ public struct Surface: Equatable, Sendable {
         self.cornerRadius = cornerRadius.isFinite ? max(0, min(cornerRadius, width / 2)) : 0
         self.releasesSnowWhenRemoved = releasesSnowWhenRemoved
         self.isElevated = isElevated ?? releasesSnowWhenRemoved
+        self.supportOffsets = supportOffsets
+        self.maximumSnowDepth = maximumSnowDepth
+        self.snowCatchFraction = snowCatchFraction
     }
 
     public func isExposed(at localX: Float) -> Bool {
@@ -55,6 +65,12 @@ public struct Surface: Equatable, Sendable {
 
     /// The actual upper contour, including the two rounded shoulders, in display-local points.
     public func baseY(at localX: Float) -> Float {
+        if supportOffsets.count >= 2 {
+            let coordinate = max(0, min(1, localX / max(0.001, width))) * Float(supportOffsets.count - 1)
+            let left = min(supportOffsets.count - 2, Int(coordinate))
+            let fraction = coordinate - Float(left)
+            return y + supportOffsets[left] * (1 - fraction) + supportOffsets[left + 1] * fraction
+        }
         let radius = max(0, min(cornerRadius, width / 2))
         let edgeDistance = max(0, min(localX, width - localX))
         guard radius > 0, edgeDistance < radius else { return y }

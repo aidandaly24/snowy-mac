@@ -7,13 +7,14 @@ final class SnowyWindowController: NSWindowController {
 
     init(settings: DecorationSettings, resetDecorations: @escaping () -> Void,
          replayWalkthrough: @escaping () -> Void) {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 870, height: 620),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 760),
                               styleMask: [.titled, .closable, .resizable],
                               backing: .buffered, defer: false)
         window.title = "Snowy"
         window.tabbingMode = .disallowed
         window.isReleasedWhenClosed = false
-        window.contentMinSize = NSSize(width: 710, height: 500)
+        window.collectionBehavior = [.moveToActiveSpace]
+        window.contentMinSize = NSSize(width: 820, height: 620)
         super.init(window: window)
 
         let hosting = NSHostingController(rootView: SnowyWindowView(
@@ -46,6 +47,7 @@ final class SnowyWindowController: NSWindowController {
 
 struct SnowyWindowView: View {
     private enum Page: String, CaseIterable, Identifiable {
+        case vibes = "Vibes"
         case wallpapers = "Wallpapers"
         case decorations = "Decorations"
         case guide = "Guide"
@@ -53,6 +55,7 @@ struct SnowyWindowView: View {
         var id: Self { self }
         var symbol: String {
             switch self {
+            case .vibes: "sparkles"
             case .wallpapers: "photo.on.rectangle"
             case .decorations: "tree"
             case .guide: "book"
@@ -64,7 +67,7 @@ struct SnowyWindowView: View {
     var resetDecorations: () -> Void
     var replayWalkthrough: () -> Void
     var openEditor: () -> Void
-    @State private var page: Page? = .decorations
+    @State private var page: Page? = .vibes
 
     var body: some View {
         NavigationSplitView {
@@ -75,7 +78,9 @@ struct SnowyWindowView: View {
             .listStyle(.sidebar)
             .navigationSplitViewColumnWidth(min: 160, ideal: 182, max: 210)
         } detail: {
-            switch page ?? .decorations {
+            switch page ?? .vibes {
+            case .vibes:
+                VibesView(settings: settings, openEditor: openEditor)
             case .wallpapers:
                 WallpapersView()
             case .decorations:
@@ -115,6 +120,12 @@ private struct SnowyGuideView: View {
 
                 GroupBox {
                     VStack(alignment: .leading, spacing: 15) {
+                        guideRow("Give each desktop a vibe", symbol: "square.stack.3d.up",
+                                 detail: "Open Vibes to browse eight presets, adjust weather and friends, and edit the village. Save Changes to Preset keeps your edits after restarting. Each desktop keeps its current selection while Snowy stays open.")
+                        Divider()
+                        guideRow("Meet your winter village", symbol: "pawprint",
+                                 detail: "In Vibes, choose a Village Mix or a single species and set one to five friends. They wander in front of the village, greet each other, visit landmarks, and notice a nearby pointer.")
+                        Divider()
                         guideRow("Set a wallpaper", symbol: "photo.on.rectangle",
                                  detail: "Choose an image in Wallpapers or import your own, then apply it to your display.")
                         Divider()
@@ -125,6 +136,23 @@ private struct SnowyGuideView: View {
                 } label: {
                     Text("Make it yours")
                 }
+
+                GroupBox {
+                    VStack(alignment: .leading, spacing: 15) {
+                        guideRow("Throw a snowball", symbol: "snowflake",
+                                 detail: "Choose Cursor Tool → Snowball. On an empty part of the desktop, hold Option, flick the pointer, then release Option. No mouse click is needed. Snowballs splash against windows and the ground.")
+                        Divider()
+                        guideRow("Build a snowman", symbol: "figure.stand",
+                                 detail: "Choose Cursor Tool → Build Snowman. Hold Option over empty desktop for a little over a second, then release. A snowman appears at the bottom edge below your pointer.")
+                        Divider()
+                        guideRow("Shake off a snowy window", symbol: "rectangle.on.rectangle",
+                                 detail: "Drag a window back and forth a few times quickly. Its snow cap falls off the sides.")
+                        Divider()
+                        guideRow("Keep it quiet on battery", symbol: "battery.75percent",
+                                 detail: "Battery-Friendly Mode keeps settled snow and decorations, stops falling flakes and wandering friends, and redraws the snow only when something changes. You can still sweep and play.")
+                    }
+                    .padding(8)
+                } label: { Text("Play and power") }
             }
             .padding(26)
             .frame(maxWidth: 740, alignment: .leading)

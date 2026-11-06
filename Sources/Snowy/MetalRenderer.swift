@@ -56,7 +56,8 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
     let view: MTKView
     let spotlightOverlay: SpotlightOverlay
     var beforeFrame: ((TimeInterval, SIMD2<Float>?) -> Void)?
-    var cursorPosition: (() -> SIMD2<Float>)?
+    var cursorPosition: (() -> SIMD2<Float>?)?
+    var shouldRender: (() -> Bool)?
     var onFailure: (() -> Void)?
     private let context: MetalContext
     private let menuInset: Float
@@ -64,6 +65,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
     private var lastFrame: TimeInterval?
     private var slotIndex = 0
     private var slots: [Slot] = []
+    private var lastPresentedRevision: UInt64 = .max
 
     private struct FrameUniforms {
         var viewport: SIMD2<Float>
@@ -100,6 +102,13 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
             layer.presentsWithTransaction = false
         }
         view.delegate = self
+        try allocateSlots()
+    }
+
+    private func allocateSlots() throws {
+        guard slots.isEmpty else { return }
+        let budget = simulation.budget
+        var prepared: [Slot] = []
         for _ in 0..<2 {
             guard let particles = context.device.makeBuffer(
                 length: max(16, budget.flakes * MemoryLayout<ParticleInstance>.stride),
@@ -107,28 +116,45 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
                   let mesh = context.device.makeBuffer(
                     length: max(16, budget.maximumSnowVertices * MemoryLayout<SnowVertex>.stride),
                     options: .cpuCacheModeWriteCombined) else { throw RendererError.allocationFailed }
-            slots.append(Slot(particles: particles, mesh: mesh))
+            prepared.append(Slot(particles: particles, mesh: mesh))
         }
+        slots = prepared
+        slotIndex = 0
     }
 
-    func apply(policy: RenderPolicy, scale: CGFloat, paused: Bool) {
+    func apply(policy: RenderPolicy, scale: CGFloat, paused: Bool, retainingLastFrame: Bool = false) {
+        if simulation.ambientSnowfallEnabled == policy.batteryFriendly { lastPresentedRevision = .max }
+        simulation.ambientSnowfallEnabled = !policy.batteryFriendly
         simulation.reducedMotion = policy.reducedMotion
         simulation.particleScale = policy.particleScale
         view.preferredFramesPerSecond = policy.framesPerSecond
         let drawableSize = CGSize(width: max(1, (view.bounds.width * scale).rounded(.down)),
                                   height: max(1, (view.bounds.height * scale).rounded(.down)))
-        if view.drawableSize != drawableSize { view.drawableSize = drawableSize }
+        if !retainingLastFrame, view.drawableSize != drawableSize {
+            view.drawableSize = drawableSize
+            lastPresentedRevision = .max
+        }
         if view.isPaused != paused {
             lastFrame = nil
             simulation.resetPointer()
             view.isPaused = paused
+            lastPresentedRevision = .max
         }
-        if paused { view.releaseDrawables() }
+        if paused {
+            slots.removeAll()
+            if !retainingLastFrame { view.releaseDrawables() }
+        }
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
     func draw(in view: MTKView) {
+        guard !view.isPaused, shouldRender?() ?? true else {
+            lastFrame = nil
+            return
+        }
+        do { try allocateSlots() }
+        catch { onFailure?(); return }
         // A busy GPU drops a decorative frame; it never stalls the main thread on our buffers.
         guard inFlight.wait(timeout: .now()) == .success else { return }
         var submitted = false
@@ -139,6 +165,10 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
         let dt = Float(lastFrame.map { now - $0 } ?? (1 / Double(view.preferredFramesPerSecond)))
         lastFrame = now
         simulation.step(dt: dt, cursor: cursor)
+
+        // Static battery mode still polls for gestures, but does not submit a
+        // Metal frame unless the snow, geometry, or drawable actually changed.
+        if !simulation.ambientSnowfallEnabled, simulation.meshRevision == lastPresentedRevision { return }
 
         guard let pass = view.currentRenderPassDescriptor, let drawable = view.currentDrawable,
               let command = context.queue.makeCommandBuffer(),
@@ -204,6 +234,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
         submitted = true
         slotIndex = (slotIndex + 1) % slots.count
         command.commit()
+        lastPresentedRevision = simulation.meshRevision
     }
 
     private func encodeSpotlight(command: MTLCommandBuffer, mesh: MTLBuffer, uniforms: FrameUniforms) {

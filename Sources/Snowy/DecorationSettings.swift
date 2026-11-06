@@ -1,22 +1,39 @@
 import Foundation
 import Observation
+import SnowCore
 
 @MainActor
 @Observable
 final class DecorationSettings {
     static let scaleRange = 0.65...1.60
+    var vibe: DesktopVibe = .cozyVillage { didSet { if !isSynchronizing { notice = ""; onVibeChange?(vibe) } } }
+    var snowfall: Snowfall = .light { didSet { sendWeather() } }
+    var windHeading: Double = 90 { didSet { sendWeather() } }
+    var windStrength: Double = 0.08 { didSet { sendWeather() } }
+    var friendKind: WinterFriendKind = .mixed { didSet { sendFriends() } }
+    var friendCount = 3 { didSet { sendFriends() } }
+    var lightSnowCatch: Double = 0.2 {
+        didSet {
+            if !isSynchronizing { notice = ""; onLightSnowCatchChange?(Float(lightSnowCatch)) }
+        }
+    }
+    var batteryFriendly = false { didSet { if !isSynchronizing { onBatteryChange?(batteryFriendly) } } }
+    var tool: SnowTool = .glove { didSet { if !isSynchronizing { onToolChange?(tool) } } }
+    var hasSavedVibe = false
+    var savedPresetAssets: [String: [String]] = [:]
+    var notice = ""
 
     private(set) var layout: DecorationLayout
     var scale: Double {
         didSet {
-            guard scale != oldValue else { return }
+            guard !isSynchronizing, scale != oldValue else { return }
             defaults.set(scale, forKey: "decorations.scale")
             apply()
         }
     }
     var pushes: Bool {
         didSet {
-            guard pushes != oldValue else { return }
+            guard !isSynchronizing, pushes != oldValue else { return }
             defaults.set(pushes, forKey: "decorations.pushes")
             apply()
         }
@@ -25,7 +42,7 @@ final class DecorationSettings {
     private(set) var scenes: [UInt32: DecorationScene]
     var includesDesktopIcons: Bool {
         didSet {
-            guard includesDesktopIcons != oldValue else { return }
+            guard !isSynchronizing, includesDesktopIcons != oldValue else { return }
             defaults.set(includesDesktopIcons, forKey: "decorations.includesDesktopIcons")
             apply()
         }
@@ -33,8 +50,19 @@ final class DecorationSettings {
     var desktops: [SceneDesktop] = []
 
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private var isSynchronizing = false
     @ObservationIgnored var onChange: ((DecorationConfiguration) -> Void)?
     @ObservationIgnored var onEditorVisibility: ((Bool) -> Void)?
+    @ObservationIgnored var onVibeChange: ((DesktopVibe) -> Void)?
+    @ObservationIgnored var onWeatherChange: ((Snowfall, WindSettings) -> Void)?
+    @ObservationIgnored var onFriendsChange: ((WinterFriendKind, Int) -> Void)?
+    @ObservationIgnored var onLightSnowCatchChange: ((Float) -> Void)?
+    @ObservationIgnored var onBatteryChange: ((Bool) -> Void)?
+    @ObservationIgnored var onSaveVibe: (() -> Bool)?
+    @ObservationIgnored var onResetVibe: (() -> Void)?
+    @ObservationIgnored var onToolChange: ((SnowTool) -> Void)?
+    @ObservationIgnored var onClearSnow: (() -> Void)?
+    @ObservationIgnored var onResetPositions: (() -> Void)?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -79,5 +107,51 @@ final class DecorationSettings {
         return true
     }
 
-    func apply() { onChange?(configuration) }
+    func load(_ configuration: DecorationConfiguration) {
+        guard self.configuration != configuration else { return }
+        isSynchronizing = true
+        defer { isSynchronizing = false }
+        layout = configuration.layout
+        scale = configuration.scale
+        pushes = configuration.pushes
+        usesCustomScenes = configuration.usesCustomScenes
+        scenes = configuration.scenes
+        includesDesktopIcons = configuration.includesDesktopIcons
+    }
+
+    func apply() { if !isSynchronizing { onChange?(configuration) } }
+
+    func loadControls(vibe: DesktopVibe, snowfall: Snowfall, wind: WindSettings,
+                      friendKind: WinterFriendKind, friendCount: Int, battery: Bool, saved: Bool, tool: SnowTool = .glove, lightSnowCatch: Float = 0.2) {
+        if self.vibe != vibe { notice = "" }
+        guard self.vibe != vibe || self.snowfall != snowfall || self.friendKind != friendKind
+            || self.friendCount != friendCount || batteryFriendly != battery || hasSavedVibe != saved || self.tool != tool
+            || abs(self.lightSnowCatch - Double(lightSnowCatch)) > 0.00001
+            || abs(windHeading - Double(wind.headingDegrees)) > 0.0001
+            || abs(windStrength - Double(wind.speedFraction)) > 0.00001 else { return }
+        isSynchronizing = true
+        defer { isSynchronizing = false }
+        self.vibe = vibe
+        self.snowfall = snowfall
+        windHeading = Double(wind.headingDegrees)
+        windStrength = Double(wind.speedFraction)
+        self.friendKind = friendKind
+        self.friendCount = friendCount
+        batteryFriendly = battery
+        hasSavedVibe = saved
+        self.tool = tool
+        self.lightSnowCatch = Double(lightSnowCatch)
+    }
+
+    private func sendWeather() {
+        guard !isSynchronizing else { return }
+        notice = ""
+        onWeatherChange?(snowfall, WindSettings(headingDegrees: Float(windHeading), speedFraction: Float(windStrength)))
+    }
+
+    private func sendFriends() {
+        guard !isSynchronizing else { return }
+        notice = ""
+        onFriendsChange?(friendKind, min(5, max(1, friendCount)))
+    }
 }

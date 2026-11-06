@@ -107,7 +107,7 @@ struct DecorationsView: View {
     }
 }
 
-private struct DecorationThumbnail: View {
+struct DecorationThumbnail: View {
     let pieces: [DecorationPiece]
 
     var body: some View {

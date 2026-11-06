@@ -32,7 +32,7 @@ The visual direction is a shallow, continuous cap inspired by Apple Weather. The
 - A shallow connected cap with broad, irregular lobes, a bright upper edge, cool shading at the base, and tapered corners. This follows the requested Apple Weather direction rather than making a pile of individually rendered balls.
 - Displaced snow is a cellular granular material. It has local occupancy/compression, downward and diagonal flow, repose against obstacles, and redeposition onto the existing smooth profiles. It has no launch velocity, particle lifetime, mass-scaled ellipse, or large airborne sprite. A connected contour mesh is reconstructed from neighbouring occupied cells using the same snow shading as the stable caps.
 - The 24-point glove displaces a travel-proportional amount. **Cursor Tool → Shovel** selects a stronger, 36-point rigid exclusion area that pushes all contacted snow out of its radius, including while held still. Displaced area stays in the material field or on supports; an exhausted pool/search returns unplaced area to its source rather than deleting it. A completely sealed/saturated space cannot be physically emptied without somewhere to put its material.
-- Persistent window IDs represent moving boundaries. Translation or outward resizing pushes intersected snow along the entering face, including fast sweeps between snapshots. Caps belonging to that window move with their support. Newly appearing IDs erase their covered snow instead. Profile updates and boundary motion are applied in one scene transaction. Space changes reset the scene explicitly.
+- Persistent window IDs represent moving boundaries. Translation or outward resizing pushes intersected snow along the entering face, including fast sweeps between snapshots. Caps belonging to that window move with their support. Newly appearing IDs erase their covered snow instead. Profile updates and boundary motion are applied in one scene transaction. Each visited native desktop has its own panel, snow simulation, and decoration instances. Panels stay attached to that desktop instead of joining all Spaces and use the managed collection behavior so WindowServer can animate them during desktop swipes and Mission Control. Inactive scenes retain their snow and prop positions, pause their clocks, and release GPU mesh/particle buffers. Only the active desktop accepts window metadata. Public `NSWindow.isOnActiveSpace` identifies returning panels, without private Space identifiers. The eight most recently used desktops per physical display are kept in memory; quitting or changing the physical display layout clears this transient state. Fullscreen and sleep suppression still apply.
 - Attached caps also sweep against other persistent windows and widget boundaries before following a dragged support. Only contacted material detaches; it stays on the approach side in the existing granular field or bounded reserve. Continuous relative contacts include fast crossings, rounded corners, and undersides. A diagonal drag cannot hand snow to a later lower support through an earlier wall. New contacts enter the field after window-boundary pushes, preventing the carrier from pushing them twice.
 - When a window descends across another existing top, its overlapping cap area hands off to the first crossed support. Non-overlapping columns continue riding the moving window. The handoff is captured before attachment transforms and deposited after boundary pushes, so the snow neither disappears inside the lower window nor gets pushed twice. Coplanar tops stay exposed. A full receiver spills into granular storage; a bounded explicit retry queue preserves area if both capacity and storage are exhausted.
 - Horizontal wind changes incoming snowfall around protruding walls. Rightward wind suppresses new snowfall on the right/downwind side and builds the left/upwind drift; leftward wind mirrors this. The snowfall-shadow radius scales with horizontal strength up to 96 points, with a short fade beyond it. A shallow protrusion has a weaker effect and coplanar tops create no wall wake. Deposition can rise up to 2.25 times locally, while physical maximum heights remain 18 points for windows, 13 for the Dock, and 28 for the floor. Existing piles stay in place when wind changes. Glove/shovel pushes, moving boundaries, support handoffs, and loose grains can still place snow in the shadow, using the same physical capacity as in calm weather. Initial dusting and incoming flake landings obey the snowfall shadow.
@@ -49,7 +49,7 @@ These are implementation limits, **not benchmark results or a measured CPU/batte
 
 - **30 fps normally**, 20 in Low Power Mode, 15 at serious thermal pressure; critical thermal pressure suspends rendering and tracking. Reduced Motion uses quiet, slowly forming drifts with no decorative falling flakes at 15 fps. Functional granular displacement remains available; the wind-pad spring snaps immediately.
 - **Global budgets across up to six displays:** at most 900 decorative falling flakes, 24,576 active granular cells, 131,072 allocated grid cells, 4,096 height samples, and 48 window/widget/Dock/floor surfaces. Area-based allocation prevents every monitor from multiplying those limits. Steady snowfall uses fewer than the maximum flakes. Collision geometry is capped at 64 rectangles per display, separate from the surface budget.
-- **At most six million combined drawable pixels**, capped at 1.5 pixels per point normally and 1 in energy-saving modes. Two drawable buffers per display; no MSAA, depth/stencil textures, full-screen blur, bloom, or intermediate render passes. The color drawable allocation alone is at most approximately 48 MB; WindowServer, driver, pipeline, and other app allocations are additional.
+- **At most six million combined drawable pixels**, capped at 1.5 pixels per point normally and 1 in energy-saving modes. Two drawable buffers per display; no MSAA, depth/stencil textures, full-screen blur, bloom, or intermediate render passes. The active color drawable allocation alone is at most approximately 48 MB; cached desktops can retain additional last-presented surfaces for native swipe animations; WindowServer, driver, pipeline, and other app allocations are additional.
 - **Normally one render pass and at most two draw calls per visible display:** a batched drift mesh and instanced flake quads. Pipelines and one Metal command queue are shared. An available integrated/low-power GPU is preferred to avoid waking a discrete GPU for decoration.
 - **Spotlight's temporary cap strip shares that frame.** While search is visible, one additional paused Metal view renders only its cap ranges from the same mesh buffer and command buffer. The main frame explicitly drives its draw cycle so MetalKit advances its drawable correctly. It has no separate simulation, render timer, or flake pass. Its logical region is capped at the display width by 128 points and counts toward the existing six-million-pixel drawable budget. The desktop draw skips those cap ranges. The strip is click-through and follows the normal pause, sleep, session, and fullscreen gates.
 - **Reusable bounded CPU/GPU storage.** Profiles settle at most 10 times per simulated second using conservative pairwise volume transfers. Active brushing and support motion rebuild meshes immediately at the frame rate. Two reusable buffer slots keep in-flight writes separate. The CPU never explicitly waits for GPU completion; a busy buffer pool skips the decorative frame. No per-flake views, layers, timers, textures, or physics bodies. Wind UI redraws for input/focus/appearance, plus a short-lived spring timer after release; the timer stops on settling, reset, dismissal, or loss of its view.
@@ -60,6 +60,53 @@ These are implementation limits, **not benchmark results or a measured CPU/batte
 - **Material release is bounded.** Three reusable release/contact arrays each hold at most the existing height-sample count. Repeated dismissals or contacts with exhausted granular storage coalesce reserve entries rather than losing area or growing storage. New-window coverage clips retained vertical column intervals before insertion; release retries share the existing granular placement-work allowance. Carried caps use at most ten vertical samples per occupied profile column and only test persistent bodies overlapping their swept band. This work runs with scene updates rather than introducing another render or physics clock.
 - **Full window discovery at most twice per second at rest**, up to ten times per second while a mouse button is down. Between full scans, the selected moving window is queried by ID at up to 30 Hz using `CGWindowListCreateDescriptionFromArray`; its result is merged into the record cache. Mouse release triggers a final full refresh. Queries run serially off the main actor, with only one in flight. Generation checks discard stale results. Fully fullscreen displays are checked at most once per second to detect a return to the desktop.
 - **No rendering over detected fullscreen content.** Pause, display sleep, an inactive login session, and critical heat stop the metadata timer as well as the render loops. Drawable attachments are released while paused. Notifications restore the appropriate policy; the app does not prevent App Nap or system sleep. A desktop panel's bounding-box occlusion flag is intentionally not used to stop animation, because transparent full-display Finder/widget containers can report that flag even when snow is visible.
+
+## Personal desktop features
+
+Each cached desktop owns its weather, scene configuration, a bounded group of optional winter
+friends, and its play objects. Cozy Village fits the original scenery across
+floor and Dock rails using actual sprite widths and stable per-prop IDs. Its
+factory layout reflows when the first Dock snapshot arrives or Dock bounds
+change; explicit scene edits and saved presets retain their positions. Warm
+lights complete the scene. Blizzard increases snowfall and uses bounded
+sinusoidal gusts. The particle and simulation storage caps do not increase. Boundary emission
+samples incoming flux through top/bottom and upwind sides to avoid a clear wedge
+in lateral storms. Gradual wind erosion conserves cap plus granular area and
+leaves unplaced snow on its source when storage is exhausted. Eight native gust
+streaks use tight layer bounds and the existing clock.
+Hanging-wire supports catch 20% of ambient flakes by default. Each swept query
+samples a support once across all its buckets, so a missed flake continues to
+lower supports in the same sweep. Ambient dusting and deposition use the same
+fraction; transported snow retains physical contacts for mass conservation. The
+Vibes slider changes the current desktop's fraction without clearing its snow,
+and saved presets persist it with a 20% fallback for older data.
+Scene controls synchronize to the active desktop without broadcasting changes
+to the other cached desktops.
+
+Friends, footprints and snowballs use a small bounded set of native layers above
+the snow view. They advance from the renderer's existing frame callback, with no
+additional timers. Friends subtract native window/Dock bounds and other residents' actual sprite
+widths from their walking lanes. Mixed groups advance in sequence, so each step
+respects the preceding resident's updated position. A covered resident relocates
+to free ground, or stays hidden until room is available. Tiny pockets remain
+idle, cursor-facing has an eight-point deadband, and gait advances only while
+moving. Friends walk in the village foreground, pause
+to greet neighbors and visit landmarks, and notice exposed cursors. Groups are
+capped at five residents; tracks are capped at 72 and fade after 18 seconds. Snowballs are
+capped at eight and use continuous contacts against window bodies and the floor.
+Their impacts feed the existing bounded granular snow field. Snowman construction
+adds an ordinary prop, subject to the existing 16-prop scene cap.
+
+The click-through panel observes an Option gesture only in a selected play tool;
+it does not capture mouse clicks or install a global event tap. Window shakes
+require several rapid horizontal reversals during an actual mouse drag. Snow
+that cannot fit in granular storage remains on the shaken cap.
+
+Battery-Friendly Mode keeps the desktop layer visible, disables ambient flakes
+and accumulation, freezes wandering and decorative wind, and polls interactions
+at 10 Hz. The Metal renderer skips unchanged static meshes. It is separate from
+Pause, which hides the snow. Core tests verify that static battery scenes neither
+regrow snow nor rebuild their mesh, while sweeping still displaces snow.
 
 ## Window geometry and privacy
 
@@ -84,3 +131,22 @@ Public window metadata does not describe arbitrary silhouettes, exact corner rad
 - `website/`: a separate browser implementation of the snow playground, built without third-party runtime packages.
 
 Relevant Apple guidance: [window metadata and its query cost](https://developer.apple.com/documentation/coregraphics/cgwindowlistcopywindowinfo(_:_:)), [metadata privacy](https://developer.apple.com/videos/play/wwdc2019/701/), [MetalKit frame rate](https://developer.apple.com/documentation/metalkit/mtkview/preferredframespersecond), [resource storage modes](https://developer.apple.com/documentation/metal/setting-resource-storage-modes), [Low Power Mode notifications](https://developer.apple.com/documentation/foundation/nsnotification/name-swift.struct/nsprocessinfopowerstatedidchange), and [display sleep notifications](https://developer.apple.com/documentation/appkit/nsworkspace/screensdidsleepnotification).
+
+### Curved light-wire snow
+
+A light string exposes a bounded 48-sample support contour, with windows clipping
+visibility and snowfall exposure. Snow meshes and continuous particle contacts
+use the sampled base height. Wire caps have a three-point depth limit. At most six
+wire supports share the existing surface budget, with a small reservation before
+prop silhouette detail. Wire geometry is sampled at most 10 Hz as ropes move;
+unchanged supports do not update the simulation. Removing a wire releases its
+retained snow through the existing bounded release path.
+
+### Vibe settings
+
+The Vibes page and menu controls use one observable settings model, synchronized
+without triggering mutation callbacks. Each active desktop receives weather,
+friends, and scene changes independently. Named preset overrides serialize a
+bounded scene, weather and group choices into a size-limited UserDefaults record.
+They contain no native Space identifiers. The settings window opens on the active
+Space, and its mouse-covered region does not brush the desktop snow behind it.

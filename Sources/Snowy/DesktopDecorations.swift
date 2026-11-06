@@ -112,8 +112,14 @@ final class DesktopDecorations {
         CATransaction.commit()
     }
 
-    func reset() {
+    func resetInteraction() {
         previousPointer = nil
+        lastFrame = nil
+        for index in sprites.indices { sprites[index].velocity = 0 }
+    }
+
+    func reset() {
+        resetInteraction()
         for index in sprites.indices {
             let sprite = sprites[index]
             sprites[index].frame = DecorationPlacement.frame(for: sprite.prop, piece: sprite.piece,

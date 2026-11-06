@@ -53,7 +53,7 @@ final class SpotlightOverlay: NSObject, MTKViewDelegate {
         panel.hidesOnDeactivate = false
         panel.isMovable = false
         panel.animationBehavior = .none
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        panel.collectionBehavior = [.fullScreenAuxiliary, .managed, .ignoresCycle]
         panel.isExcludedFromWindowsMenu = true
         panel.contentView = view
     }

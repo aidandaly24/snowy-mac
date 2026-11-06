@@ -69,6 +69,11 @@ final class DesktopHangingLights {
         CATransaction.commit()
     }
 
+    func resetInteraction() {
+        previousCursor = nil
+        lastFrame = nil
+    }
+
     func advance(now: TimeInterval, wind: WindSettings, cursor: SIMD2<Float>?,
                  reducedMotion: Bool, isCovered: (SIMD2<Float>) -> Bool) {
         guard !ropes.isEmpty else {
@@ -111,6 +116,15 @@ final class DesktopHangingLights {
             rope.art.draw(rope.physics.positions, height: desktop.size.height)
         }
         CATransaction.commit()
+    }
+
+    func snowSurfaces(occluders: [SolidBody], catchFraction: Float = 0.2) -> [Surface] {
+        ropes.compactMap { rope in
+            let id = (UInt64(bitPattern: Int64(rope.model.id.hashValue)) & 0x0000_FFFF_FFFF_FFFF) | (1 << 58)
+            return WireSnowSupport.build(id: id, points: rope.physics.positions.map { SIMD2(Float($0.x), Float($0.y)) },
+                                         size: SIMD2(Float(desktop.size.width), Float(desktop.size.height)), occluders: occluders,
+                                         catchFraction: catchFraction)
+        }
     }
 
     private final class Rope {

@@ -27,7 +27,8 @@ public final class SnowDrift {
         let phase = Float(surface.id % 997) * 0.17
         let taperWidth: Float = surface.width < 16 ? surface.width / 2 : 13
         let limit: Float
-        if surface.id == DesktopSceneBuilder.groundID { limit = 28 }
+        if let maximum = surface.maximumSnowDepth { limit = maximum }
+        else if surface.id == DesktopSceneBuilder.groundID { limit = 28 }
         else if surface.isDock { limit = 13 }
         else if surface.releasesSnowWhenRemoved && !surface.isElevated {
             limit = min(18, max(4, surface.width * 0.32))
@@ -45,7 +46,7 @@ public final class SnowDrift {
             snowfallCapacities[i] = baseCapacities[i]
             deposition[i] = (0.18 + lobe * 0.17) * taper
             // A sub-point dusting makes a discovered edge visible immediately, then builds gradually.
-            heights[i] = surface.isSnowExposed(at: x) && !cornerWind[i].clear ? min(capacities[i], 0.6 * taper) : 0
+            heights[i] = surface.isSnowExposed(at: x) && !cornerWind[i].clear ? min(capacities[i], 0.6 * taper * surface.snowCatchFraction) : 0
         }
         baseDeposition = deposition
         applyCornerWind(cornerWind)
@@ -57,7 +58,7 @@ public final class SnowDrift {
         for i in heights.indices {
             // Wind changes incoming snowfall, never the physical space available to pushed snow.
             snowfallCapacities[i] = effects[i].clear ? 0 : min(capacities[i], baseCapacities[i] * effects[i].capacityScale)
-            deposition[i] = baseDeposition[i] * effects[i].depositionScale
+            deposition[i] = baseDeposition[i] * effects[i].depositionScale * surface.snowCatchFraction
         }
     }
 
